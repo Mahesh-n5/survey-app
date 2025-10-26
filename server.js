@@ -1,7 +1,5 @@
 const express = require('express');
 const XLSX = require('xlsx');
-const fs = require('fs');
-const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,46 +7,39 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const EXCEL_FILE = path.join('/data', 'surveys.xlsx');
-const DOWNLOAD_PASSWORD = 'mahesh@123'; // Replace with a strong, unique password
+// Store submissions in memory (temporary, resets on server restart)
+let submissions = [];
+
+// Password for downloading the Excel file (replace with a strong, unique password)
+const DOWNLOAD_PASSWORD = 'maheshn5';
 
 app.post('/submit', (req, res) => {
     const data = req.body;
-    
-    let wb;
-    let isNew = false;
-    
-    if (fs.existsSync(EXCEL_FILE)) {
-        wb = XLSX.readFile(EXCEL_FILE);
-    } else {
-        wb = XLSX.utils.book_new();
-        isNew = true;
-    }
-    
-    let ws;
-    if (isNew) {
-        ws = XLSX.utils.json_to_sheet([data]);
-        XLSX.utils.book_append_sheet(wb, ws, 'Responses');
-    } else {
-        ws = wb.Sheets['Responses'];
-        XLSX.utils.sheet_add_json(ws, [data], {skipHeader: true, origin: -1});
-    }
-    
-    XLSX.writeFile(wb, EXCEL_FILE);
-    
+    submissions.push(data); // Store submission in memory
     res.send('Survey submitted!');
 });
 
 app.get('/download', (req, res) => {
-    if (req.query.pass === DOWNLOAD_PASSWORD) {
-        if (fs.existsSync(EXCEL_FILE)) {
-            res.download(EXCEL_FILE, 'survey_responses.xlsx');
-        } else {
-            res.status(404).send('No data yet');
-        }
-    } else {
-        res.status(401).send('Unauthorized');
+    if (req.query.pass !== DOWNLOAD_PASSWORD) {
+        return res.status(401).send('Unauthorized');
     }
+
+    if (submissions.length === 0) {
+        return res.status(404).send('No data yet');
+    }
+
+    // Create Excel workbook and sheet from in-memory submissions
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(submissions);
+    XLSX.utils.book_append_sheet(wb, ws, 'Responses');
+
+    // Generate Excel file buffer
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    // Set headers for file download
+    res.setHeader('Content-Disposition', 'attachment; filename=survey_responses.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
 });
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
